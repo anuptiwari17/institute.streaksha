@@ -1,171 +1,280 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import api from '@/lib/api';
+import { setTokens, getRoleRedirect } from '@/lib/auth';
+import { Eye, EyeOff, Mail, Lock, AlertTriangle, ArrowRight } from 'lucide-react';
 
-export default function Login() {
+const FloatingOrb = ({ style }) => (
+  <div style={{
+    position: 'absolute', borderRadius: '50%', pointerEvents: 'none',
+    filter: 'blur(60px)', ...style
+  }}/>
+);
+
+export default function LoginPage() {
   const router = useRouter();
-  const [step, setStep] = useState('credentials'); // credentials | forgot | reset
-  const [form, setForm] = useState({ email: '', password: '', otp: '', newPassword: '' });
+  const [form, setForm] = useState({ email: '', password: '' });
+  const [showPass, setShowPass] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [sessionActive, setSessionActive] = useState(false);
+  const [mounted, setMounted] = useState(false);
 
-  const set = (field) => (e) => setForm({ ...form, [field]: e.target.value });
+  useEffect(() => { setTimeout(() => setMounted(true), 30); }, []);
 
-  const handleLogin = async (e, force = false) => {
-    e.preventDefault();
+  const set = (f) => (e) => {
+    setForm(p => ({ ...p, [f]: e.target.value }));
+    setError('');
+    setSessionActive(false);
+  };
+
+  const handleLogin = async (force = false) => {
+    if (!form.email || !form.password) { setError('Both fields are required'); return; }
     setLoading(true); setError(''); setSessionActive(false);
     try {
-      const res = await api.post('/auth/login', { email: form.email, password: form.password, force });
-      localStorage.setItem('accessToken', res.data.data.accessToken);
-      localStorage.setItem('refreshToken', res.data.data.refreshToken);
-      router.push('/dashboard');
+      const res = await api.post('/auth/login', { ...form, force });
+      setTokens(res.data.data.accessToken, res.data.data.refreshToken);
+      router.push(getRoleRedirect(res.data.data.user.role));
     } catch (err) {
       if (err.response?.data?.code === 'SESSION_ACTIVE') setSessionActive(true);
       else setError(err.response?.data?.message || 'Invalid credentials');
     } finally { setLoading(false); }
   };
 
-  const handleForgot = async (e) => {
-    e.preventDefault();
-    setLoading(true); setError('');
-    try {
-      await api.post('/auth/forgot-password', { email: form.email });
-      setStep('reset');
-    } catch (err) {
-      setError(err.response?.data?.message || 'Email not found');
-    } finally { setLoading(false); }
-  };
-
-  const handleReset = async (e) => {
-    e.preventDefault();
-    setLoading(true); setError('');
-    try {
-      await api.post('/auth/reset-password', { email: form.email, otp: form.otp, newPassword: form.newPassword });
-      setStep('credentials');
-      setForm({ email: form.email, password: '', otp: '', newPassword: '' });
-    } catch (err) {
-      setError(err.response?.data?.message || 'Failed to reset');
-    } finally { setLoading(false); }
-  };
-
-  const titles = {
-    credentials: { h: 'Welcome back', p: 'Sign in to your Streaksha account' },
-    forgot: { h: 'Forgot password?', p: 'Enter your email to receive an OTP' },
-    reset: { h: 'Reset password', p: `OTP sent to ${form.email}` },
-  };
-
   return (
-    <main className="min-h-screen bg-black text-white flex">
-      <div className="hidden lg:flex flex-col justify-between w-1/2 p-12 border-r border-zinc-800">
-        <span className="text-xl font-black tracking-tight">Streaksha</span>
-        <div>
-          <p className="text-5xl font-black tracking-tighter leading-tight mb-4">
-            Test smarter.<br />
-            <span className="text-transparent bg-clip-text bg-gradient-to-r from-orange-400 to-pink-500">
-              Rank higher.
-            </span>
-          </p>
-          <p className="text-zinc-500 text-sm max-w-xs">The assessment platform built for Indian institutions.</p>
+    <div style={{
+      minHeight: '100vh', background: '#FAFAF8', display: 'flex',
+      fontFamily: "'Inter', sans-serif", position: 'relative', overflow: 'hidden',
+    }}>
+      <FloatingOrb style={{ width: 500, height: 500, background: 'rgba(255,77,0,0.07)', top: '-10%', right: '-5%' }}/>
+      <FloatingOrb style={{ width: 350, height: 350, background: 'rgba(37,99,235,0.05)', bottom: '10%', left: '-5%' }}/>
+
+      {/* Left panel — branding */}
+      <div style={{
+        width: '45%', background: '#0A0A0A', padding: '48px 56px',
+        display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
+        position: 'relative', overflow: 'hidden',
+        opacity: mounted ? 1 : 0, transform: mounted ? 'translateX(0)' : 'translateX(-20px)',
+        transition: 'all 0.8s cubic-bezier(0.16,1,0.3,1)',
+      }}>
+        {/* Decorative circles */}
+        <div style={{ position: 'absolute', width: 400, height: 400, borderRadius: '50%',
+                       border: '1px solid rgba(255,255,255,0.05)', top: '50%', left: '50%',
+                       transform: 'translate(-50%,-50%)', pointerEvents: 'none' }}/>
+        <div style={{ position: 'absolute', width: 600, height: 600, borderRadius: '50%',
+                       border: '1px solid rgba(255,255,255,0.03)', top: '50%', left: '50%',
+                       transform: 'translate(-50%,-50%)', pointerEvents: 'none' }}/>
+        <div style={{ position: 'absolute', bottom: -80, right: -80, width: 300, height: 300,
+                       borderRadius: '50%', background: 'rgba(255,77,0,0.12)', pointerEvents: 'none' }}/>
+
+        {/* Logo */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, position: 'relative', zIndex: 1 }}>
+          <div style={{ width: 36, height: 36, background: '#FF4D00', borderRadius: 10,
+                         display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <span style={{ color: 'white', fontWeight: 900, fontSize: 16 }}>S</span>
+          </div>
+          <span style={{ color: 'white', fontWeight: 900, fontSize: 20, letterSpacing: '-0.03em' }}>
+            Streaksha
+          </span>
         </div>
-        <p className="text-zinc-700 text-xs">© 2025 Streaksha</p>
+
+        {/* Big text */}
+        <div style={{ position: 'relative', zIndex: 1 }}>
+          <p style={{ fontSize: 11, fontWeight: 700, color: '#FF4D00', textTransform: 'uppercase',
+                       letterSpacing: '0.1em', marginBottom: 20 }}>
+            Welcome back
+          </p>
+          <h2 style={{ fontSize: 'clamp(36px,4vw,54px)', fontWeight: 900, color: 'white',
+                        letterSpacing: '-0.04em', lineHeight: 1.0, marginBottom: 20 }}>
+            Every exam.<br/>
+            Every student.<br/>
+            <span style={{ color: '#FF4D00' }}>All in one place.</span>
+          </h2>
+          <p style={{ fontSize: 15, color: 'rgba(255,255,255,0.45)', lineHeight: 1.7, maxWidth: 340 }}>
+            India's smartest quiz platform for schools and coaching institutes.
+          </p>
+        </div>
+
+        {/* Bottom badges */}
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', position: 'relative', zIndex: 1 }}>
+          {['🔒 Secure sessions', '⚡ Instant results', '📊 Smart analytics'].map(b => (
+            <span key={b} style={{
+              fontSize: 12, color: 'rgba(255,255,255,0.5)', background: 'rgba(255,255,255,0.07)',
+              border: '1px solid rgba(255,255,255,0.1)', borderRadius: 99,
+              padding: '6px 14px', fontWeight: 500,
+            }}>{b}</span>
+          ))}
+        </div>
       </div>
 
-      <div className="flex-1 flex items-center justify-center px-6">
-        <div className="w-full max-w-sm">
-          <div className="lg:hidden mb-8">
-            <span className="text-xl font-black tracking-tight">Streaksha</span>
+      {/* Right panel — form */}
+      <div style={{
+        flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        padding: '48px 40px', position: 'relative', zIndex: 1,
+        opacity: mounted ? 1 : 0, transform: mounted ? 'translateY(0)' : 'translateY(20px)',
+        transition: 'all 0.8s cubic-bezier(0.16,1,0.3,1) 0.1s',
+      }}>
+        <div style={{ width: '100%', maxWidth: 440 }}>
+          {/* Header */}
+          <div style={{ marginBottom: 40 }}>
+            <h1 style={{ fontSize: 'clamp(32px,4vw,44px)', fontWeight: 900,
+                          letterSpacing: '-0.04em', color: '#0A0A0A', lineHeight: 1.05,
+                          marginBottom: 10 }}>
+              Sign in
+            </h1>
+            <p style={{ fontSize: 15, color: '#6B6B6B' }}>
+              Don't have an account?{' '}
+              <Link href="/register" style={{ color: '#FF4D00', fontWeight: 700,
+                                              textDecoration: 'none' }}>
+                Register your institute →
+              </Link>
+            </p>
           </div>
 
-          <h1 className="text-3xl font-black tracking-tight mb-1">{titles[step].h}</h1>
-          <p className="text-zinc-500 text-sm mb-8">{titles[step].p}</p>
-
+          {/* Error */}
           {error && (
-            <p className="bg-red-900/30 border border-red-800 text-red-400 text-sm px-4 py-3 rounded-xl mb-6">{error}</p>
+            <div style={{
+              background: '#FFF5F5', border: '1px solid #FED7D7', borderRadius: 14,
+              padding: '14px 16px', marginBottom: 24,
+              display: 'flex', alignItems: 'center', gap: 10,
+            }}>
+              <AlertTriangle size={15} color="#E53E3E"/>
+              <span style={{ fontSize: 14, color: '#C53030', fontWeight: 500 }}>{error}</span>
+            </div>
           )}
 
+          {/* Session active warning */}
           {sessionActive && (
-            <div className="bg-amber-900/20 border border-amber-800 text-amber-400 text-sm px-4 py-3 rounded-xl mb-6">
-              Already logged in elsewhere.{' '}
-              <button onClick={(e) => handleLogin(e, true)} className="underline font-semibold">
-                Kill that session and login here
+            <div style={{
+              background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 14,
+              padding: '16px', marginBottom: 24,
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                <AlertTriangle size={15} color="#D97706"/>
+                <span style={{ fontSize: 14, fontWeight: 700, color: '#92400E' }}>
+                  Active session detected
+                </span>
+              </div>
+              <p style={{ fontSize: 13, color: '#92400E', marginBottom: 14, lineHeight: 1.5 }}>
+                You're already logged in on another device. Kill that session to continue here.
+              </p>
+              <button onClick={() => handleLogin(true)} style={{
+                width: '100%', background: '#D97706', color: 'white',
+                border: 'none', borderRadius: 10, padding: '11px',
+                fontSize: 14, fontWeight: 700, cursor: 'pointer',
+                transition: 'all 0.15s',
+              }}
+                onMouseEnter={e => { e.target.style.background = '#B45309'; }}
+                onMouseLeave={e => { e.target.style.background = '#D97706'; }}>
+                Kill old session & login here
               </button>
             </div>
           )}
 
-          {step === 'credentials' && (
-            <form onSubmit={handleLogin} className="flex flex-col gap-4">
-              {[
-                { label: 'Email', field: 'email', type: 'email', placeholder: 'you@institute.com' },
-                { label: 'Password', field: 'password', type: 'password', placeholder: '••••••••' },
-              ].map((f) => (
-                <div key={f.field}>
-                  <label className="text-xs text-zinc-500 mb-1.5 block">{f.label}</label>
-                  <input type={f.type} placeholder={f.placeholder} value={form[f.field]}
-                    onChange={set(f.field)} required
-                    className="w-full bg-zinc-900 border border-zinc-800 text-white rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-zinc-500 placeholder:text-zinc-700 transition"
-                  />
-                </div>
-              ))}
-              <button type="button" onClick={() => { setStep('forgot'); setError(''); }}
-                className="text-xs text-zinc-600 hover:text-zinc-400 transition text-left -mt-2">
-                Forgot password?
-              </button>
-              <button type="submit" disabled={loading}
-                className="bg-white text-black font-bold py-3 rounded-xl hover:bg-zinc-100 transition text-sm disabled:opacity-40">
-                {loading ? 'Logging in...' : 'Login →'}
-              </button>
-            </form>
-          )}
-
-          {step === 'forgot' && (
-            <form onSubmit={handleForgot} className="flex flex-col gap-4">
-              <div>
-                <label className="text-xs text-zinc-500 mb-1.5 block">Email</label>
-                <input type="email" placeholder="you@institute.com" value={form.email}
-                  onChange={set('email')} required
-                  className="w-full bg-zinc-900 border border-zinc-800 text-white rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-zinc-500 placeholder:text-zinc-700 transition"
+          {/* Form */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+            {/* Email */}
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 700, color: '#6B6B6B',
+                               textTransform: 'uppercase', letterSpacing: '0.06em',
+                               display: 'block', marginBottom: 8 }}>
+                Email address
+              </label>
+              <div style={{ position: 'relative' }}>
+                <Mail size={15} color="#A3A3A0" style={{
+                  position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)',
+                  pointerEvents: 'none',
+                }}/>
+                <input
+                  type="email" placeholder="you@institute.com"
+                  value={form.email} onChange={set('email')}
+                  onKeyDown={e => e.key === 'Enter' && handleLogin()}
+                  style={{
+                    width: '100%', background: 'white', border: '1.5px solid #E5E5E3',
+                    borderRadius: 14, padding: '14px 14px 14px 42px',
+                    fontSize: 15, color: '#0A0A0A', outline: 'none',
+                    transition: 'all 0.15s', fontFamily: 'inherit',
+                  }}
+                  onFocus={e => { e.target.style.borderColor = '#0A0A0A'; e.target.style.boxShadow = '0 0 0 3px rgba(10,10,10,0.08)'; }}
+                  onBlur={e => { e.target.style.borderColor = '#E5E5E3'; e.target.style.boxShadow = 'none'; }}
                 />
               </div>
-              <button type="submit" disabled={loading}
-                className="bg-white text-black font-bold py-3 rounded-xl hover:bg-zinc-100 transition text-sm disabled:opacity-40">
-                {loading ? 'Sending...' : 'Send OTP →'}
-              </button>
-              <button type="button" onClick={() => { setStep('credentials'); setError(''); }}
-                className="text-zinc-600 text-sm hover:text-zinc-400 transition">← Back to login</button>
-            </form>
-          )}
+            </div>
 
-          {step === 'reset' && (
-            <form onSubmit={handleReset} className="flex flex-col gap-4">
-              <input type="text" placeholder="000000" value={form.otp}
-                onChange={set('otp')} maxLength={6}
-                className="w-full bg-zinc-900 border border-zinc-800 text-white rounded-xl px-4 py-4 text-2xl font-bold tracking-[0.5em] text-center focus:outline-none focus:border-zinc-500 placeholder:text-zinc-700 transition"
-              />
-              <div>
-                <label className="text-xs text-zinc-500 mb-1.5 block">New Password</label>
-                <input type="password" placeholder="••••••••" value={form.newPassword}
-                  onChange={set('newPassword')} required
-                  className="w-full bg-zinc-900 border border-zinc-800 text-white rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-zinc-500 placeholder:text-zinc-700 transition"
-                />
+            {/* Password */}
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                <label style={{ fontSize: 12, fontWeight: 700, color: '#6B6B6B',
+                                 textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                  Password
+                </label>
+                <Link href="/forgot-password" style={{ fontSize: 12, color: '#FF4D00',
+                                                       fontWeight: 600, textDecoration: 'none' }}>
+                  Forgot password?
+                </Link>
               </div>
-              <button type="submit" disabled={loading}
-                className="bg-white text-black font-bold py-3 rounded-xl hover:bg-zinc-100 transition text-sm disabled:opacity-40">
-                {loading ? 'Resetting...' : 'Reset Password →'}
-              </button>
-              <button type="button" onClick={() => { setStep('forgot'); setError(''); }}
-                className="text-zinc-600 text-sm hover:text-zinc-400 transition">← Resend OTP</button>
-            </form>
-          )}
+              <div style={{ position: 'relative' }}>
+                <Lock size={15} color="#A3A3A0" style={{
+                  position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)',
+                  pointerEvents: 'none',
+                }}/>
+                <input
+                  type={showPass ? 'text' : 'password'} placeholder="••••••••"
+                  value={form.password} onChange={set('password')}
+                  onKeyDown={e => e.key === 'Enter' && handleLogin()}
+                  style={{
+                    width: '100%', background: 'white', border: '1.5px solid #E5E5E3',
+                    borderRadius: 14, padding: '14px 44px 14px 42px',
+                    fontSize: 15, color: '#0A0A0A', outline: 'none',
+                    transition: 'all 0.15s', fontFamily: 'inherit',
+                  }}
+                  onFocus={e => { e.target.style.borderColor = '#0A0A0A'; e.target.style.boxShadow = '0 0 0 3px rgba(10,10,10,0.08)'; }}
+                  onBlur={e => { e.target.style.borderColor = '#E5E5E3'; e.target.style.boxShadow = 'none'; }}
+                />
+                <button onClick={() => setShowPass(p => !p)} style={{
+                  position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)',
+                  background: 'none', border: 'none', cursor: 'pointer', color: '#A3A3A0',
+                  padding: 0, display: 'flex',
+                }}>
+                  {showPass ? <EyeOff size={16}/> : <Eye size={16}/>}
+                </button>
+              </div>
+            </div>
 
-          <p className="text-zinc-600 text-sm mt-8 text-center">
-            New institute?{' '}
-            <Link href="/register" className="text-zinc-400 hover:text-white transition">Register here</Link>
+            {/* Submit */}
+            <button onClick={() => handleLogin(false)} disabled={loading}
+              style={{
+                width: '100%', background: loading ? '#6B6B6B' : '#0A0A0A',
+                color: 'white', border: 'none', borderRadius: 16,
+                padding: '16px', fontSize: 16, fontWeight: 700, cursor: loading ? 'not-allowed' : 'pointer',
+                transition: 'all 0.2s', display: 'flex', alignItems: 'center',
+                justifyContent: 'center', gap: 8, fontFamily: 'inherit',
+                marginTop: 6,
+              }}
+              onMouseEnter={e => { if (!loading) { e.target.style.background = '#FF4D00'; e.target.style.transform = 'translateY(-1px)'; e.target.style.boxShadow = '0 8px 24px rgba(255,77,0,0.25)'; } }}
+              onMouseLeave={e => { e.target.style.background = loading ? '#6B6B6B' : '#0A0A0A'; e.target.style.transform = 'translateY(0)'; e.target.style.boxShadow = 'none'; }}>
+              {loading ? (
+                <svg className="animate-spin" width={18} height={18} viewBox="0 0 24 24" fill="none">
+                  <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" opacity="0.25"/>
+                  <path fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" opacity="0.8"/>
+                </svg>
+              ) : (
+                <>Sign in <ArrowRight size={16}/></>
+              )}
+            </button>
+          </div>
+
+          {/* Bottom note */}
+          <p style={{ marginTop: 32, fontSize: 12, color: '#C0C0BC', textAlign: 'center', lineHeight: 1.6 }}>
+            By signing in you agree to Streaksha&#39;s{' '}
+            <a href="#" style={{ color: '#A3A3A0', textDecoration: 'none' }}>Terms</a>
+            {' '}and{' '}
+            <a href="#" style={{ color: '#A3A3A0', textDecoration: 'none' }}>Privacy Policy</a>
           </p>
         </div>
       </div>
-    </main>
+    </div>
   );
 }
