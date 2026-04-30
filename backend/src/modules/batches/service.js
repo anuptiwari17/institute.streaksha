@@ -97,8 +97,10 @@ const addStudent = async (tenantId, batchId, { userId }) => {
 
   const r = await pool.query(
     `INSERT INTO batch_enrollments (batch_id, user_id)
-     VALUES ($1,$2)
-     ON CONFLICT (batch_id, user_id) DO NOTHING
+     SELECT $1, $2
+     WHERE NOT EXISTS (
+       SELECT 1 FROM batch_enrollments WHERE batch_id = $1 AND user_id = $2
+     )
      RETURNING *`,
     [batchId, userId]
   );
@@ -135,7 +137,7 @@ const listStudents = async (tenantId, batchId, { page = 1, limit = 50 }) => {
 
   const [data, count] = await Promise.all([
     pool.query(
-      `SELECT u.id, u.name, u.email, u.roll_no, u.is_active, be.enrolled_at
+      `SELECT u.id, u.name, u.email, u.roll_no, u.is_active
        FROM batch_enrollments be
        JOIN users u ON u.id = be.user_id
        WHERE be.batch_id = $1
@@ -157,8 +159,32 @@ const listStudents = async (tenantId, batchId, { page = 1, limit = 50 }) => {
   };
 };
 
+const listAssignments = async (tenantId, batchId) => {
+  const batch = await pool.query(
+    'SELECT id FROM batches WHERE id = $1 AND tenant_id = $2',
+    [batchId, tenantId]
+  );
+  if (!batch.rows.length) throw { status: 404, message: 'Batch not found' };
+
+  const r = await pool.query(
+    `SELECT ta.id, ta.subject_id, ta.teacher_id,
+            s.name AS subject_name,
+            u.name AS teacher_name,
+            u.email AS teacher_email
+     FROM teaching_assignments ta
+     JOIN subjects s ON s.id = ta.subject_id
+     JOIN users u ON u.id = ta.teacher_id
+     JOIN batches b ON b.id = ta.batch_id
+     WHERE ta.batch_id = $1 AND b.tenant_id = $2
+     ORDER BY s.name ASC, u.name ASC`,
+    [batchId, tenantId]
+  );
+
+  return r.rows;
+};
+
 module.exports = {
   createBatch, listBatches, getBatch,
   updateBatch, deleteBatch,
-  addStudent, removeStudent, listStudents,
+  addStudent, removeStudent, listStudents, listAssignments,
 };

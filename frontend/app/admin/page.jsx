@@ -144,7 +144,7 @@ export default function AdminOverview() {
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    setMounted(true);
+    const timer = setTimeout(() => setMounted(true), 0);
     // Parallel fetch — fast
     Promise.all([
       api.get('/profile').catch(() => null),
@@ -153,6 +153,7 @@ export default function AdminOverview() {
       if (profileRes?.data?.data?.stats) setStats(profileRes.data.data.stats);
       if (quizzesRes?.data?.data?.quizzes) setQuizzes(quizzesRes.data.data.quizzes);
     }).finally(() => setLoading(false));
+    return () => clearTimeout(timer);
   }, []);
 
   const hour = new Date().getHours();
@@ -191,7 +192,7 @@ export default function AdminOverview() {
               {loading ? 'Welcome back' : `Welcome back, ${user?.name?.split(' ')[0] || 'Admin'}`}
             </h1>
             <p style={{ fontSize: 14, color: '#6B6B6B', marginTop: 6 }}>
-              Here's what's happening at your institute today.
+              Here&#39s what&#39s happening at your institute today.
             </p>
           </div>
           <Link href="/admin/quizzes" style={{

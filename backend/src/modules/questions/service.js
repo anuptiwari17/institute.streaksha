@@ -100,57 +100,79 @@ const getSubjectByName = async (tenantId, name) => {
 // ── CREATE ────────────────────────────────────────────────────────────────────
 
 const createQuestion = async (tenantId, userId, role, body) => {
-  const { type, subjectId, difficulty, topic, content, correct_answer } = body;
+  // Type, content, and correct_answer are REQUIRED
+  // Subject is OPTIONAL - teachers can create questions without being assigned a subject
+  const { type, content, correct_answer, subjectId } = body;
 
-  if (!type || !subjectId || !difficulty || !content || correct_answer === undefined)
-    throw { status: 400, message: 'type, subjectId, difficulty, content, correct_answer are required' };
+  if (!type || !content || correct_answer === undefined)
+    throw { status: 400, message: 'type, content, and correct_answer are required' };
 
   if (!VALID_TYPES.includes(type))
     throw { status: 400, message: `Invalid type. Must be one of: ${VALID_TYPES.join(', ')}` };
 
-  if (difficulty < 1 || difficulty > 5)
-    throw { status: 400, message: 'Difficulty must be between 1 and 5' };
-
-  await verifySubjectAccess(tenantId, userId, role, subjectId);
-
+  // Validate the structure of content and correct_answer
   const { content: validContent, correct_answer: validAnswer } = buildAndValidate(type, content, correct_answer);
 
+  // If subjectId provided, verify access
+  if (subjectId) {
+    if (role === 'teacher') {
+      const r = await pool.query(
+        `SELECT ta.id FROM teaching_assignments ta
+         WHERE ta.teacher_id = $1 AND ta.subject_id = $2`,
+        [userId, subjectId]
+      );
+      if (!r.rows.length)
+        throw { status: 403, message: 'You are not assigned to this subject' };
+    } else {
+      // Admin can create for any subject
+      const r = await pool.query(
+        'SELECT id FROM subjects WHERE id = $1 AND tenant_id = $2',
+        [subjectId, tenantId]
+      );
+      if (!r.rows.length)
+        throw { status: 404, message: 'Subject not found' };
+    }
+  }
+
+  // Insert question - subject_id can be NULL
   const r = await pool.query(
-    `INSERT INTO questions (tenant_id, subject_id, created_by, type, difficulty, topic, content, correct_answer)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
-    [tenantId, subjectId, userId, type, difficulty, topic || null, validContent, validAnswer]
+    `INSERT INTO questions (tenant_id, subject_id, created_by, type, difficulty, content, correct_answer)
+     VALUES ($1, $2, $3, $4, NULL, $5, $6) RETURNING *`,
+    [tenantId, subjectId || null, userId, type, validContent, validAnswer]
   );
   return r.rows[0];
 };
 
 // ── LIST ──────────────────────────────────────────────────────────────────────
 
-const listQuestions = async (tenantId, userId, role, { subjectId, type, difficulty, topic, page = 1, limit = 20 }) => {
+const listQuestions = async (tenantId, userId, role, { subjectId, type, page = 1, limit = 20 }) => {
   const conditions = ['q.tenant_id = $1'];
   const params = [tenantId];
 
-  // Teachers only see their assigned subjects
-  if (role === 'teacher') {
-    params.push(userId);
-    conditions.push(`q.subject_id IN (
-      SELECT subject_id FROM teaching_assignments WHERE teacher_id = $${params.length}
-    )`);
+  // If teacher filters by subjectId, verify they are assigned to that subject
+  if (role === 'teacher' && subjectId) {
+    const access = await pool.query(
+      `SELECT ta.id FROM teaching_assignments ta
+       WHERE ta.teacher_id = $1 AND ta.subject_id = $2`,
+      [userId, subjectId]
+    );
+    if (!access.rows.length)
+      throw { status: 403, message: 'You are not assigned to this subject' };
   }
 
+  // Apply filters
   if (subjectId) { params.push(subjectId); conditions.push(`q.subject_id = $${params.length}`); }
   if (type) { params.push(type); conditions.push(`q.type = $${params.length}`); }
-  if (difficulty) { params.push(difficulty); conditions.push(`q.difficulty = $${params.length}`); }
-  if (topic) { params.push(`%${topic}%`); conditions.push(`q.topic ILIKE $${params.length}`); }
 
   const where = conditions.join(' AND ');
   const offset = (page - 1) * limit;
 
   params.push(limit, offset);
   const query = `
-    SELECT q.id, q.type, q.difficulty, q.topic, q.content, q.correct_answer,
-           q.created_at, s.name AS subject_name, u.name AS created_by_name
+    SELECT q.id, q.subject_id, q.type, q.content, q.correct_answer, q.created_at,
+           s.name AS subject_name, u.name AS created_by_name
     FROM questions q
-    JOIN subjects s ON s.id = q.subject_id
+    LEFT JOIN subjects s ON s.id = q.subject_id
     LEFT JOIN users u ON u.id = q.created_by
     WHERE ${where}
     ORDER BY q.created_at DESC
@@ -183,14 +205,18 @@ const updateQuestion = async (tenantId, userId, role, questionId, body) => {
   if (!existing.rows.length) throw { status: 404, message: 'Question not found' };
 
   const q = existing.rows[0];
-  await verifySubjectAccess(tenantId, userId, role, q.subject_id);
 
-  const { difficulty, topic, content, correct_answer } = body;
+  // Only allow update by creator or admin
+  if (role === 'teacher' && q.created_by !== userId)
+    throw { status: 403, message: 'You can only edit questions you created' };
+
+  const { content, correct_answer } = body;
   const type = q.type; // type cannot be changed after creation
 
   let validContent = q.content;
   let validAnswer = q.correct_answer;
 
+  // If updating content or answer, validate them
   if (content || correct_answer !== undefined) {
     const result = buildAndValidate(
       type,
@@ -203,13 +229,10 @@ const updateQuestion = async (tenantId, userId, role, questionId, body) => {
 
   const r = await pool.query(
     `UPDATE questions
-     SET difficulty = COALESCE($1, difficulty),
-         topic = COALESCE($2, topic),
-         content = $3,
-         correct_answer = $4
-     WHERE id = $5 AND tenant_id = $6
+     SET content = $1, correct_answer = $2
+     WHERE id = $3 AND tenant_id = $4
      RETURNING *`,
-    [difficulty || null, topic || null, validContent, validAnswer, questionId, tenantId]
+    [validContent, validAnswer, questionId, tenantId]
   );
   return r.rows[0];
 };
@@ -223,7 +246,9 @@ const deleteQuestion = async (tenantId, userId, role, questionId) => {
   );
   if (!existing.rows.length) throw { status: 404, message: 'Question not found' };
 
-  await verifySubjectAccess(tenantId, userId, role, existing.rows[0].subject_id);
+  // Only allow delete by creator or admin
+  if (role === 'teacher' && existing.rows[0].created_by !== userId)
+    throw { status: 403, message: 'You can only delete questions you created' };
 
   // Check if question is used in any quiz
   const inUse = await pool.query(
@@ -246,7 +271,7 @@ const bulkImport = async (tenantId, userId, role, fileBuffer) => {
   for (const [i, row] of records.entries()) {
     const rowNum = i + 2; // 1-indexed + header row
     try {
-      const { type, subject_name, difficulty, topic, text,
+      const { type, subject_name, difficulty, text,
               option_a, option_b, option_c, option_d,
               correct_index, correct_indices, correct_value } = row;
 
@@ -290,9 +315,9 @@ const bulkImport = async (tenantId, userId, role, fileBuffer) => {
         buildAndValidate(type, content, correct_answer);
 
       await pool.query(
-        `INSERT INTO questions (tenant_id, subject_id, created_by, type, difficulty, topic, content, correct_answer)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-        [tenantId, subject.id, userId, type, parseInt(difficulty) || 3, topic || null, validContent, validAnswer]
+        `INSERT INTO questions (tenant_id, subject_id, created_by, type, difficulty, content, correct_answer)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+        [tenantId, subject.id, userId, type, parseInt(difficulty) || 3, validContent, validAnswer]
       );
 
       results.success++;

@@ -23,26 +23,48 @@ const getProfile = async (userId, tenantId, role) => {
          (SELECT COUNT(*) FROM users WHERE tenant_id = $1 AND role = 'teacher' AND is_active = TRUE)::int AS teachers,
          (SELECT COUNT(*) FROM users WHERE tenant_id = $1 AND role = 'student' AND is_active = TRUE)::int AS students,
          (SELECT COUNT(*) FROM batches WHERE tenant_id = $1)::int AS batches,
-         (SELECT COUNT(*) FROM quizzes WHERE tenant_id = $1)::int AS quizzes`,
+         (SELECT COUNT(*) FROM subjects WHERE tenant_id = $1)::int AS subjects,
+         (SELECT COUNT(*) FROM questions WHERE tenant_id = $1)::int AS questions,
+         (SELECT COUNT(*) FROM quizzes WHERE tenant_id = $1)::int AS quizzes,
+         (SELECT COUNT(*) FROM quizzes WHERE tenant_id = $1 AND status = 'published')::int AS published_quizzes,
+         (SELECT COUNT(*) FROM quiz_sessions qs JOIN quizzes q ON q.id = qs.quiz_id WHERE q.tenant_id = $1)::int AS total_attempts`,
       [tenantId]
     );
     return { ...user, institution: tenant.rows[0], stats: stats.rows[0] };
   }
 
   if (role === 'teacher') {
+    // Get all unique subjects and batches
     const subjects = await pool.query(
-      `SELECT s.id, s.name, s.code, b.name AS batch_name, b.id AS batch_id
-       FROM teaching_assignments ta
+      `SELECT DISTINCT s.id, s.name FROM teaching_assignments ta
        JOIN subjects s ON s.id = ta.subject_id
+       WHERE ta.teacher_id = $1 ORDER BY s.name`,
+      [userId]
+    );
+    const batches = await pool.query(
+      `SELECT DISTINCT b.id, b.name, b.academic_year FROM teaching_assignments ta
        JOIN batches b ON b.id = ta.batch_id
-       WHERE ta.teacher_id = $1`,
+       WHERE ta.teacher_id = $1 ORDER BY b.name`,
       [userId]
     );
-    const quizCount = await pool.query(
-      'SELECT COUNT(*)::int AS total FROM quizzes WHERE created_by = $1',
+
+    // Get quiz stats
+    const stats = await pool.query(
+      `SELECT
+         COUNT(*)::int AS total_quizzes,
+         COUNT(CASE WHEN status = 'published' THEN 1 END)::int AS published_quizzes
+       FROM quizzes WHERE created_by = $1`,
       [userId]
     );
-    return { ...user, subjects: subjects.rows, quizCount: quizCount.rows[0].total };
+    const quizStats = stats.rows[0] || { total_quizzes: 0, published_quizzes: 0 };
+
+    return {
+      ...user,
+      subjects: subjects.rows,
+      batches: batches.rows,
+      total_quizzes: quizStats.total_quizzes,
+      published_quizzes: quizStats.published_quizzes,
+    };
   }
 
   if (role === 'student') {
@@ -133,7 +155,7 @@ const myQuizHistory = async (userId, tenantId, { page = 1, limit = 20 }) => {
 
   const [data, count] = await Promise.all([
     pool.query(
-      `SELECT qs.id AS session_id, qs.status, qs.started_at, qs.submitted_at,
+      `SELECT qs.id AS session_id, qs.status, qs.start_time, qs.end_time,
               qs.violation_count,
               q.id AS quiz_id, q.title, q.total_marks,
               s.name AS subject_name,
@@ -143,7 +165,7 @@ const myQuizHistory = async (userId, tenantId, { page = 1, limit = 20 }) => {
        JOIN subjects s ON s.id = q.subject_id
        LEFT JOIN results r ON r.session_id = qs.id
        WHERE qs.student_id = $1 AND q.tenant_id = $2
-       ORDER BY qs.started_at DESC
+       ORDER BY qs.start_time DESC
        LIMIT $3 OFFSET $4`,
       [userId, tenantId, limit, offset]
     ),
@@ -167,7 +189,7 @@ const myQuizHistory = async (userId, tenantId, { page = 1, limit = 20 }) => {
 
 const mySubjects = async (userId) => {
   const r = await pool.query(
-    `SELECT s.id, s.name, s.code,
+    `SELECT s.id, s.name,
             b.id AS batch_id, b.name AS batch_name,
             COUNT(DISTINCT q.id)::int AS question_count,
             COUNT(DISTINCT qz.id)::int AS quiz_count
@@ -177,7 +199,7 @@ const mySubjects = async (userId) => {
      LEFT JOIN questions q ON q.subject_id = s.id AND q.created_by = $1
      LEFT JOIN quizzes qz ON qz.subject_id = s.id AND qz.created_by = $1
      WHERE ta.teacher_id = $1
-     GROUP BY s.id, s.name, s.code, b.id, b.name
+     GROUP BY s.id, s.name, b.id, b.name
      ORDER BY s.name`,
     [userId]
   );

@@ -57,7 +57,14 @@ const listStudents = async (req, res) => {
   } catch (err) { return error(res, err.message, err.status || 500); }
 };
 
+const listAssignments = async (req, res) => {
+  try {
+    const data = await service.listAssignments(req.tenantId, req.params.id);
+    return success(res, data);
+  } catch (err) { return error(res, err.message, err.status || 500); }
+};
+
 module.exports = {
   createBatch, listBatches, getBatch, updateBatch, deleteBatch,
-  addStudent, removeStudent, listStudents,
+  addStudent, removeStudent, listStudents, listAssignments,
 };

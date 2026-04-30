@@ -82,7 +82,7 @@ function AddStudentModal({ open, onClose, batches, onSuccess }) {
           </div>
         </div>
         <p style={{ fontSize: 12, color: '#A3A3A0', lineHeight: 1.5 }}>
-          A random password will be generated and sent to the student's email automatically.
+          A random password will be generated and sent to the student&#39s email automatically.
         </p>
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 4 }}>
           <Button variant="secondary" type="button" onClick={onClose}>Cancel</Button>

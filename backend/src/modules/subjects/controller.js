@@ -3,9 +3,9 @@ const { success, error } = require('../../utils/response');
 
 const createSubject = async (req, res) => {
   try {
-    const { name, code } = req.body;
+    const { name } = req.body;
     if (!name) return error(res, 'Subject name required', 400);
-    const data = await service.createSubject(req.tenantId, { name, code });
+    const data = await service.createSubject(req.tenantId, { name });
     return success(res, data, 'Subject created', 201);
   } catch (err) { return error(res, err.message, err.status || 500); }
 };
@@ -40,4 +40,18 @@ const listAssignments = async (req, res) => {
   } catch (err) { return error(res, err.message, err.status || 500); }
 };
 
-module.exports = { createSubject, listSubjects, deleteSubject, assignTeacher, listAssignments };
+const updateAssignment = async (req, res) => {
+  try {
+    const data = await service.updateAssignment(req.tenantId, req.params.id, req.params.assignmentId, req.body);
+    return success(res, data, 'Assignment updated');
+  } catch (err) { return error(res, err.message, err.status || 500); }
+};
+
+const deleteAssignment = async (req, res) => {
+  try {
+    const data = await service.deleteAssignment(req.tenantId, req.params.id, req.params.assignmentId);
+    return success(res, data);
+  } catch (err) { return error(res, err.message, err.status || 500); }
+};
+
+module.exports = { createSubject, listSubjects, deleteSubject, assignTeacher, listAssignments, updateAssignment, deleteAssignment };

@@ -12,5 +12,7 @@ router.get('/', roleGuard('admin', 'teacher'), controller.listSubjects);
 router.delete('/:id', roleGuard('admin'), controller.deleteSubject);
 router.post('/:id/assign', roleGuard('admin'), controller.assignTeacher);
 router.get('/:id/assignments', roleGuard('admin'), controller.listAssignments);
+router.patch('/:id/assignments/:assignmentId', roleGuard('admin'), controller.updateAssignment);
+router.delete('/:id/assignments/:assignmentId', roleGuard('admin'), controller.deleteAssignment);
 
 module.exports = router;

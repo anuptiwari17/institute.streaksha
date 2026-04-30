@@ -45,11 +45,16 @@ const createUser = async (tenantId, { name, email, role, roll_no, batchName }) =
     if (batchName) {
       const batch = await getBatchByName(tenantId, batchName);
       if (batch) {
-        await client.query(
-          `INSERT INTO batch_enrollments (batch_id, user_id) VALUES ($1,$2)
-           ON CONFLICT DO NOTHING`,
+        const existingEnrollment = await client.query(
+          'SELECT id FROM batch_enrollments WHERE batch_id = $1 AND user_id = $2',
           [batch.id, user.id]
         );
+        if (!existingEnrollment.rows.length) {
+        await client.query(
+          'INSERT INTO batch_enrollments (batch_id, user_id) VALUES ($1,$2)',
+          [batch.id, user.id]
+        );
+        }
       }
     }
 
@@ -96,7 +101,7 @@ const bulkImport = async (tenantId, fileBuffer, role) => {
 
 // ── list users ────────────────────────────────────────────────────────────────
 
-const listUsers = async (tenantId, { role, batch_id, page = 1, limit = 20 }) => {
+const listUsers = async (tenantId, { role, batch_id, search, page = 1, limit = 20 }) => {
   const offset = (page - 1) * limit;
   const conditions = ['u.tenant_id = $1', 'u.is_active = TRUE'];
   const params = [tenantId];
@@ -104,22 +109,53 @@ const listUsers = async (tenantId, { role, batch_id, page = 1, limit = 20 }) => 
   if (role) { params.push(role); conditions.push(`u.role = $${params.length}`); }
   if (batch_id) {
     params.push(batch_id);
-    conditions.push(`be.batch_id = $${params.length}`);
+    conditions.push(`(be.batch_id = $${params.length} OR ta.batch_id = $${params.length})`);
+  }
+  if (search) {
+    params.push(`%${search}%`);
+    conditions.push(`(u.name ILIKE $${params.length} OR u.email ILIKE $${params.length} OR COALESCE(u.roll_no, '') ILIKE $${params.length})`);
   }
 
   const where = conditions.join(' AND ');
-  const join = batch_id ? 'JOIN batch_enrollments be ON be.user_id = u.id' : '';
+  const join = `
+    LEFT JOIN batch_enrollments be ON be.user_id = u.id
+    LEFT JOIN batches b ON b.id = be.batch_id
+    LEFT JOIN teaching_assignments ta ON ta.teacher_id = u.id
+    LEFT JOIN subjects s ON s.id = ta.subject_id
+    LEFT JOIN batches ab ON ab.id = ta.batch_id
+  `;
 
   params.push(limit, offset);
   const query = `
-    SELECT u.id, u.name, u.email, u.role, u.roll_no, u.created_at
+    SELECT u.id, u.name, u.email, u.role, u.roll_no, u.is_active, u.created_at,
+           COALESCE(
+             json_agg(DISTINCT jsonb_build_object('id', b.id, 'name', b.name))
+             FILTER (WHERE b.id IS NOT NULL),
+             '[]'::json
+           ) AS batches,
+           COALESCE(
+             json_agg(DISTINCT jsonb_build_object('id', s.id, 'name', s.name))
+             FILTER (WHERE s.id IS NOT NULL),
+             '[]'::json
+           ) AS subjects,
+           COALESCE(
+             json_agg(DISTINCT jsonb_build_object(
+               'id', ta.id,
+               'subject_id', s.id,
+               'subject_name', s.name,
+               'batch_id', ab.id,
+               'batch_name', ab.name
+             )) FILTER (WHERE ta.id IS NOT NULL),
+             '[]'::json
+           ) AS assignments
     FROM users u ${join}
     WHERE ${where}
+    GROUP BY u.id
     ORDER BY u.created_at DESC
     LIMIT $${params.length - 1} OFFSET $${params.length}
   `;
 
-  const countQuery = `SELECT COUNT(*) FROM users u ${join} WHERE ${where}`;
+  const countQuery = `SELECT COUNT(DISTINCT u.id) FROM users u ${join} WHERE ${where}`;
   const [data, count] = await Promise.all([
     pool.query(query, params),
     pool.query(countQuery, params.slice(0, -2)),
@@ -137,11 +173,34 @@ const listUsers = async (tenantId, { role, batch_id, page = 1, limit = 20 }) => 
 
 const getUser = async (tenantId, userId) => {
   const r = await pool.query(
-    `SELECT u.id, u.name, u.email, u.role, u.roll_no, u.created_at,
-            json_agg(json_build_object('id', b.id, 'name', b.name)) FILTER (WHERE b.id IS NOT NULL) as batches
+    `SELECT u.id, u.name, u.email, u.role, u.roll_no, u.is_active, u.created_at,
+            COALESCE(
+              json_agg(DISTINCT jsonb_build_object('id', b.id, 'name', b.name))
+              FILTER (WHERE b.id IS NOT NULL),
+              '[]'::json
+            ) AS batches,
+            COALESCE(
+              json_agg(DISTINCT jsonb_build_object('id', s.id, 'name', s.name))
+              FILTER (WHERE s.id IS NOT NULL),
+              '[]'::json
+            ) AS subjects,
+            COALESCE(
+              json_agg(DISTINCT jsonb_build_object(
+                'id', ta.id,
+                'subject_id', s.id,
+                'subject_name', s.name,
+                'batch_id', ab.id,
+                'batch_name', ab.name,
+                'teacher_id', ta.teacher_id
+              )) FILTER (WHERE ta.id IS NOT NULL),
+              '[]'::json
+            ) AS assignments
      FROM users u
      LEFT JOIN batch_enrollments be ON be.user_id = u.id
      LEFT JOIN batches b ON b.id = be.batch_id
+     LEFT JOIN teaching_assignments ta ON ta.teacher_id = u.id
+     LEFT JOIN subjects s ON s.id = ta.subject_id
+     LEFT JOIN batches ab ON ab.id = ta.batch_id
      WHERE u.id = $1 AND u.tenant_id = $2
      GROUP BY u.id`,
     [userId, tenantId]

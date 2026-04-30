@@ -195,8 +195,8 @@ const getQuiz = async (tenantId, userId, role, quizId) => {
 
   // Fetch questions — hide correct answers from students
   const questions = await pool.query(
-    `SELECT qq.id AS quiz_question_id, qq.order_index, qq.marks, qq.negative_marks,
-            q.id, q.type, q.difficulty, q.topic, q.content,
+    `SELECT qq.id AS quiz_question_id, qq.order_index, qq.marks,
+            q.id, q.type, q.difficulty, q.content,
             CASE WHEN $1 = 'student' THEN NULL ELSE q.correct_answer END AS correct_answer
      FROM quiz_questions qq
      JOIN questions q ON q.id = qq.question_id
@@ -260,7 +260,7 @@ const deleteQuiz = async (tenantId, userId, role, quizId) => {
 // ── ADD QUESTION ──────────────────────────────────────────────────────────────
 
 const addQuestion = async (tenantId, userId, role, quizId, body) => {
-  const { questionId, marks, negative_marks } = body;
+  const { questionId, marks } = body;
 
   if (!questionId) throw { status: 400, message: 'questionId required' };
   if (!marks || marks < 0) throw { status: 400, message: 'marks required and must be positive' };
@@ -269,15 +269,15 @@ const addQuestion = async (tenantId, userId, role, quizId, body) => {
   if (quiz.status === 'published')
     throw { status: 400, message: 'Cannot add questions to a published quiz' };
 
-  // Verify question belongs to tenant and same subject
+  // Verify question belongs to tenant
   const question = await pool.query(
     'SELECT * FROM questions WHERE id = $1 AND tenant_id = $2',
     [questionId, tenantId]
   );
   if (!question.rows.length) throw { status: 404, message: 'Question not found' };
 
-  if (question.rows[0].subject_id !== quiz.subject_id)
-    throw { status: 400, message: 'Question subject does not match quiz subject' };
+  // Questions can be assigned to any quiz regardless of subject, as long as they belong to the same tenant
+  // Teachers can choose to organize questions by subject or not
 
   // Get next order index
   const orderResult = await pool.query(
@@ -286,15 +286,19 @@ const addQuestion = async (tenantId, userId, role, quizId, body) => {
   );
   const orderIndex = orderResult.rows[0].next_order;
 
-  const r = await pool.query(
-    `INSERT INTO quiz_questions (quiz_id, question_id, marks, negative_marks, order_index)
-     VALUES ($1,$2,$3,$4,$5)
-     ON CONFLICT (quiz_id, question_id) DO NOTHING
-     RETURNING *`,
-    [quizId, questionId, marks, negative_marks || 0, orderIndex]
+  const existingLink = await pool.query(
+    'SELECT id FROM quiz_questions WHERE quiz_id = $1 AND question_id = $2',
+    [quizId, questionId]
   );
+  if (existingLink.rows.length)
+    throw { status: 409, message: 'Question already in quiz' };
 
-  if (!r.rows.length) throw { status: 409, message: 'Question already in quiz' };
+  const r = await pool.query(
+    `INSERT INTO quiz_questions (quiz_id, question_id, marks, order_index)
+     VALUES ($1,$2,$3,$4)
+     RETURNING *`,
+    [quizId, questionId, marks, orderIndex]
+  );
 
   await recalcTotalMarks(quizId);
   return r.rows[0];

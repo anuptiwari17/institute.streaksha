@@ -75,3 +75,6 @@ node_modules/
 .next/
 dist/
 build/
+claude_instructions.md
+plan.md
+progress.md

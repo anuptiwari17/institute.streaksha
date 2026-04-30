@@ -76,8 +76,8 @@ const startSession = async (tenantId, userId, quizId, ipAddress) => {
 
   // 6. Fetch questions
   const questionsResult = await pool.query(
-    `SELECT qq.question_id, qq.marks, qq.negative_marks, qq.order_index,
-            q.type, q.content, q.topic
+    `SELECT qq.question_id, qq.marks, qq.order_index,
+            q.type, q.content
      FROM quiz_questions qq
      JOIN questions q ON q.id = qq.question_id
      WHERE qq.quiz_id = $1
@@ -106,7 +106,7 @@ const startSession = async (tenantId, userId, quizId, ipAddress) => {
   // 8. Create session
   const sessionResult = await pool.query(
     `INSERT INTO quiz_sessions
-       (quiz_id, student_id, started_at, status, shuffled_order, ip_address)
+       (quiz_id, student_id, start_time, status, shuffled_order, ip_address)
      VALUES ($1,$2,NOW(),'active',$3,$4)
      RETURNING *`,
     [quizId, userId, JSON.stringify(questionOrder), ipAddress || null]
@@ -129,8 +129,6 @@ const startSession = async (tenantId, userId, quizId, ipAddress) => {
     type: questionsMap[qId].type,
     content: questionsMap[qId].content,
     marks: questionsMap[qId].marks,
-    negative_marks: questionsMap[qId].negative_marks,
-    topic: questionsMap[qId].topic,
   }));
 
   return {
@@ -168,7 +166,7 @@ const saveAnswer = async (userId, sessionId, { questionId, answer }) => {
 
   // Verify question is in this quiz
   const questionInQuiz = await pool.query(
-    `SELECT qq.marks, qq.negative_marks, q.type, q.correct_answer
+    `SELECT qq.marks, q.type, q.correct_answer
      FROM quiz_questions qq
      JOIN questions q ON q.id = qq.question_id
      WHERE qq.quiz_id = $1 AND qq.question_id = $2`,
@@ -177,12 +175,11 @@ const saveAnswer = async (userId, sessionId, { questionId, answer }) => {
   if (!questionInQuiz.rows.length)
     throw { status: 400, message: 'Question does not belong to this quiz' };
 
-  // Upsert answer — auto-save, no scoring yet
+  // Replace any prior answer for the same question since the table has no unique constraint
+  await pool.query('DELETE FROM session_answers WHERE session_id = $1 AND question_id = $2', [sessionId, questionId]);
   await pool.query(
     `INSERT INTO session_answers (session_id, question_id, answer)
-     VALUES ($1,$2,$3)
-     ON CONFLICT (session_id, question_id)
-     DO UPDATE SET answer = $3, answered_at = NOW()`,
+     VALUES ($1,$2,$3)`,
     [sessionId, questionId, JSON.stringify(answer)]
   );
 
@@ -233,8 +230,8 @@ const logViolation = async (userId, sessionId, { type }) => {
 const scoreSession = async (sessionId, quizId, userId, tenantId) => {
   // Fetch all quiz questions with correct answers
   const questionsResult = await pool.query(
-    `SELECT qq.question_id, qq.marks, qq.negative_marks,
-            q.type, q.correct_answer, q.topic
+    `SELECT qq.question_id, qq.marks,
+            q.type, q.correct_answer
      FROM quiz_questions qq
      JOIN questions q ON q.id = qq.question_id
      WHERE qq.quiz_id = $1`,
@@ -253,31 +250,19 @@ const scoreSession = async (sessionId, quizId, userId, tenantId) => {
   }
 
   let scoredMarks = 0;
-  const topicBreakdown = {};
   const answerUpdates = [];
 
   for (const q of questionsResult.rows) {
-    const topic = q.topic || 'General';
-    if (!topicBreakdown[topic]) {
-      topicBreakdown[topic] = { attempted: 0, correct: 0, marks: 0 };
-    }
-
     const studentAnswer = answersMap[q.question_id];
     let isCorrect = false;
     let marksAwarded = 0;
 
     if (studentAnswer !== undefined) {
-      topicBreakdown[topic].attempted++;
       isCorrect = checkAnswer(q.type, q.correct_answer, studentAnswer);
 
       if (isCorrect) {
         marksAwarded = q.marks;
         scoredMarks += q.marks;
-        topicBreakdown[topic].correct++;
-        topicBreakdown[topic].marks += q.marks;
-      } else {
-        marksAwarded = -(q.negative_marks || 0);
-        scoredMarks -= q.negative_marks || 0;
       }
     }
 
@@ -290,7 +275,6 @@ const scoreSession = async (sessionId, quizId, userId, tenantId) => {
     [quizId]
   );
   const totalMarks = parseFloat(quizResult.rows[0].total_marks);
-  scoredMarks = Math.max(0, scoredMarks); // floor at 0
   const percentage = totalMarks > 0 ? (scoredMarks / totalMarks) * 100 : 0;
   const grade = getGrade(percentage);
 
@@ -325,7 +309,7 @@ const scoreSession = async (sessionId, quizId, userId, tenantId) => {
        RETURNING *`,
       [sessionId, quizId, userId, tenantId,
        totalMarks, scoredMarks, percentage.toFixed(2),
-       rank, grade, JSON.stringify(topicBreakdown)]
+       rank, grade, JSON.stringify({})]
     );
 
     // Update all previous ranks (shift everyone down by 1 if needed)
@@ -392,7 +376,7 @@ const submitSession = async (tenantId, userId, sessionId) => {
   // Mark session as completed
   await pool.query(
     `UPDATE quiz_sessions
-     SET status = 'completed', submitted_at = NOW()
+     SET status = 'completed', end_time = NOW()
      WHERE id = $1`,
     [sessionId]
   );
@@ -424,7 +408,7 @@ const submitSession = async (tenantId, userId, sessionId) => {
 
 const getSessionStatus = async (userId, sessionId) => {
   const session = await pool.query(
-    `SELECT qs.id, qs.status, qs.started_at, qs.shuffled_order,
+    `SELECT qs.id, qs.status, qs.start_time, qs.shuffled_order,
             qs.violation_count, qs.quiz_id,
             q.config, q.title
      FROM quiz_sessions qs
@@ -446,7 +430,7 @@ const getSessionStatus = async (userId, sessionId) => {
       // Auto-submit if timer expired
       if (remainingSeconds === 0) {
         await pool.query(
-          `UPDATE quiz_sessions SET status = 'completed', submitted_at = NOW() WHERE id = $1`,
+          `UPDATE quiz_sessions SET status = 'completed', end_time = NOW() WHERE id = $1`,
           [sessionId]
         );
         await scoreSession(sessionId, s.quiz_id, userId, null);
@@ -488,7 +472,7 @@ const getQuizResults = async (tenantId, userId, role, quizId) => {
     `SELECT r.id, r.scored_marks, r.total_marks, r.percentage, r.grade,
             r.rank, r.topic_breakdown, r.computed_at,
             u.name AS student_name, u.email, u.roll_no,
-            qs.violation_count, qs.started_at, qs.submitted_at,
+            qs.violation_count, qs.start_time, qs.end_time,
             qs.id AS session_id
      FROM results r
      JOIN users u ON u.id = r.user_id
@@ -547,9 +531,9 @@ const getSessionReview = async (tenantId, userId, role, sessionId) => {
   }
 
   const answers = await pool.query(
-    `SELECT sa.question_id, sa.answer, sa.is_correct, sa.marks_awarded,
-            q.type, q.content, q.correct_answer, q.topic,
-            qq.marks AS max_marks, qq.negative_marks
+      `SELECT sa.question_id, sa.answer, sa.is_correct, sa.marks_awarded,
+        q.type, q.content, q.correct_answer,
+        qq.marks AS max_marks
      FROM session_answers sa
      JOIN questions q ON q.id = sa.question_id
      JOIN quiz_questions qq ON qq.question_id = sa.question_id AND qq.quiz_id = $1
@@ -574,8 +558,8 @@ const getSessionReview = async (tenantId, userId, role, sessionId) => {
     session: {
       id: s.id,
       status: s.status,
-      startedAt: s.started_at,
-      submittedAt: s.submitted_at,
+      startedAt: s.start_time,
+      submittedAt: s.end_time,
       violationCount: s.violation_count,
     },
     result: result.rows[0] || null,
