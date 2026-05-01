@@ -93,13 +93,10 @@ const startSession = async (tenantId, userId, quizId, ipAddress) => {
     questionOrder = shuffleArray(questionOrder);
   }
 
-  // Shuffle options per question if needed
+  // Keep option order stable so answer evaluation and review stay aligned.
   const questionsMap = {};
   for (const q of questionsResult.rows) {
     let content = q.content;
-    if (quiz.config?.shuffle_options && ['mcq_single', 'mcq_multiple'].includes(q.type)) {
-      content = { ...q.content, options: shuffleArray(q.content.options) };
-    }
     questionsMap[q.question_id] = { ...q, content };
   }
 
@@ -189,7 +186,7 @@ const saveAnswer = async (userId, sessionId, { questionId, answer }) => {
 // ── LOG VIOLATION ─────────────────────────────────────────────────────────────
 
 const logViolation = async (userId, sessionId, { type }) => {
-  const VALID_VIOLATIONS = ['tab_switch', 'fullscreen_exit', 'window_blur'];
+  const VALID_VIOLATIONS = ['tab_switch', 'fullscreen_exit', 'window_blur', 'window_resize'];
 
   if (!VALID_VIOLATIONS.includes(type))
     throw { status: 400, message: `Invalid violation type. Must be: ${VALID_VIOLATIONS.join(', ')}` };
@@ -249,6 +246,14 @@ const scoreSession = async (sessionId, quizId, userId, tenantId) => {
     answersMap[a.question_id] = a.answer;
   }
 
+  // Fetch quiz config to get negative_marking setting
+  const quizResult = await pool.query(
+    'SELECT total_marks, config FROM quizzes WHERE id = $1',
+    [quizId]
+  );
+  const totalMarks = parseFloat(quizResult.rows[0].total_marks);
+  const negativeMarking = (quizResult.rows[0].config?.negative_marking || 0);
+
   let scoredMarks = 0;
   const answerUpdates = [];
 
@@ -263,18 +268,16 @@ const scoreSession = async (sessionId, quizId, userId, tenantId) => {
       if (isCorrect) {
         marksAwarded = q.marks;
         scoredMarks += q.marks;
+      } else if (negativeMarking > 0) {
+        // Apply negative marking for wrong answers
+        marksAwarded = -(q.marks * negativeMarking);
+        scoredMarks += marksAwarded;
       }
     }
 
     answerUpdates.push({ questionId: q.question_id, isCorrect, marksAwarded });
   }
 
-  // Fetch quiz total marks
-  const quizResult = await pool.query(
-    'SELECT total_marks FROM quizzes WHERE id = $1',
-    [quizId]
-  );
-  const totalMarks = parseFloat(quizResult.rows[0].total_marks);
   const percentage = totalMarks > 0 ? (scoredMarks / totalMarks) * 100 : 0;
   const grade = getGrade(percentage);
 
@@ -292,13 +295,14 @@ const scoreSession = async (sessionId, quizId, userId, tenantId) => {
       );
     }
 
-    // Compute rank — how many students scored higher on this quiz
+    // Compute rank — students with same score get same rank
+    // Rank = 1 + count of students with strictly higher score
     const rankResult = await client.query(
-      `SELECT COUNT(*) FROM results
+      `SELECT COUNT(DISTINCT scored_marks) AS higher_scores FROM results
        WHERE quiz_id = $1 AND scored_marks > $2`,
       [quizId, scoredMarks]
     );
-    const rank = parseInt(rankResult.rows[0].count) + 1;
+    const rank = parseInt(rankResult.rows[0].higher_scores) + 1;
 
     // Insert result
     const resultRow = await client.query(
@@ -312,13 +316,7 @@ const scoreSession = async (sessionId, quizId, userId, tenantId) => {
        rank, grade, JSON.stringify({})]
     );
 
-    // Update all previous ranks (shift everyone down by 1 if needed)
-    await client.query(
-      `UPDATE results SET rank = rank + 1
-       WHERE quiz_id = $1 AND session_id != $2 AND scored_marks <= $3`,
-      [quizId, sessionId, scoredMarks]
-    );
-
+    // Do NOT update previous ranks as we're using score-based ranking, not position-based
     await client.query('COMMIT');
     return resultRow.rows[0];
   } catch (err) {

@@ -8,14 +8,14 @@ const roleGuard = require('../../middlewares/roleGuard');
 router.use(auth, tenantScope);
 
 router.post('/', roleGuard('admin'), controller.createBatch);
-router.get('/', roleGuard('admin', 'teacher'), controller.listBatches);
-router.get('/:id', roleGuard('admin', 'teacher'), controller.getBatch);
+router.get('/', roleGuard('admin', 'teacher', 'super_admin'), controller.listBatches);
+router.get('/:id', roleGuard('admin', 'teacher', 'super_admin'), controller.getBatch);
 router.put('/:id', roleGuard('admin'), controller.updateBatch);
 router.delete('/:id', roleGuard('admin'), controller.deleteBatch);
 
 router.post('/:id/students', roleGuard('admin'), controller.addStudent);
 router.delete('/:id/students/:userId', roleGuard('admin'), controller.removeStudent);
-router.get('/:id/students', roleGuard('admin', 'teacher'), controller.listStudents);
-router.get('/:id/assignments', roleGuard('admin', 'teacher'), controller.listAssignments);
+router.get('/:id/students', roleGuard('admin', 'teacher', 'super_admin'), controller.listStudents);
+router.get('/:id/assignments', roleGuard('admin', 'teacher', 'super_admin'), controller.listAssignments);
 
 module.exports = router;

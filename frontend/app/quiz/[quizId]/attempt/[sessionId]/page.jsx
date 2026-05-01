@@ -27,7 +27,6 @@ export default function QuizAttemptPage() {
   const router = useRouter();
   const quizId = params.quizId;
   const sessionId = params.sessionId;
-  const mountedRef = useRef(false);
   const timerRef = useRef(null);
 
   const [quiz, setQuiz] = useState(null);
@@ -41,6 +40,8 @@ export default function QuizAttemptPage() {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [remainingSeconds, setRemainingSeconds] = useState(null);
   const [violations, setViolations] = useState(0);
+  const [focusState, setFocusState] = useState('secure');
+  const autoSubmitTriggeredRef = useRef(false);
 
   const questions = quiz?.questions || [];
   const currentQuestion = questions[currentIndex] || null;
@@ -121,38 +122,47 @@ export default function QuizAttemptPage() {
   }, [remainingSeconds]);
 
   useEffect(() => {
-    if (!mountedRef.current && quiz?.questions?.length) {
-      mountedRef.current = true;
-      const root = document.documentElement;
-      if (root.requestFullscreen) {
-        root.requestFullscreen().catch(() => {
-          setWarning('Fullscreen was not granted. Please enter fullscreen to continue securely.');
-        });
-      }
-    }
-  }, [quiz]);
+    let baselineWidth = window.innerWidth;
+    let baselineHeight = window.innerHeight;
 
-  useEffect(() => {
-    const onVisibilityChange = () => {
-      if (document.hidden) handleViolation('tab_switch');
+    const logFocusIssue = (type, message) => {
+      setFocusState('warned');
+      setWarning(message);
+      setViolations((value) => value + 1);
+      api.post(`/sessions/${sessionId}/violation`, { type }).catch(() => null);
     };
-    const onBlur = () => handleViolation('window_blur');
-    const onFullscreenChange = () => {
-      if (!document.fullscreenElement) handleViolation('fullscreen_exit');
+
+    const onVisibilityChange = () => {
+      if (document.hidden) {
+        logFocusIssue('tab_switch', 'Quiz focus lost. Keep the quiz tab active and do not switch applications.');
+      }
+    };
+    const onBlur = () => {
+      logFocusIssue('window_blur', 'Quiz focus lost. Keep the quiz window active and do not switch applications.');
+    };
+    const onResize = () => {
+      const widthDelta = Math.abs(window.innerWidth - baselineWidth);
+      const heightDelta = Math.abs(window.innerHeight - baselineHeight);
+      if (widthDelta > 80 || heightDelta > 80) {
+        baselineWidth = window.innerWidth;
+        baselineHeight = window.innerHeight;
+        logFocusIssue('window_resize', 'Quiz window size changed during the attempt. Avoid split-screen or rearranging the exam window.');
+      }
     };
 
     document.addEventListener('visibilitychange', onVisibilityChange);
     window.addEventListener('blur', onBlur);
-    document.addEventListener('fullscreenchange', onFullscreenChange);
+    window.addEventListener('resize', onResize);
     return () => {
       document.removeEventListener('visibilitychange', onVisibilityChange);
       window.removeEventListener('blur', onBlur);
-      document.removeEventListener('fullscreenchange', onFullscreenChange);
+      window.removeEventListener('resize', onResize);
     };
   }, []);
 
   const handleViolation = async (type) => {
-    setWarning('Quiz security rule triggered. Stay in fullscreen and on this page.');
+    setFocusState('warned');
+    setWarning('Quiz security rule triggered. Keep this window focused and avoid switching away from the quiz. Repeated violations will auto-submit your quiz after 5 alerts.');
     setViolations((value) => value + 1);
     try {
       await api.post(`/sessions/${sessionId}/violation`, { type });
@@ -160,6 +170,14 @@ export default function QuizAttemptPage() {
       // keep UI warning even if logging fails
     }
   };
+
+  useEffect(() => {
+    if (violations < 5) return;
+    if (autoSubmitTriggeredRef.current) return;
+    autoSubmitTriggeredRef.current = true;
+    setWarning('Five violations detected. Your quiz is being auto-submitted now.');
+    handleSubmit(true);
+  }, [violations]);
 
   const handleAnswerChange = async (question, value) => {
     setAnswers((prev) => ({ ...prev, [question.id]: value }));
@@ -208,6 +226,7 @@ export default function QuizAttemptPage() {
 
   const { text, options } = normalizeContent(currentQuestion.content);
   const remainingLabel = formatClock(remainingSeconds ?? 0);
+  const isTimeWarning = remainingSeconds != null && remainingSeconds > 0 && remainingSeconds <= 300;
 
   return (
     <div style={{ fontFamily: 'Segoe UI, sans-serif', color: '#111111', padding: '8px 0 24px' }}>
@@ -232,7 +251,7 @@ export default function QuizAttemptPage() {
           </div>
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
             <button onClick={() => handleViolation('tab_switch')} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '10px 14px', borderRadius: 16, border: '1px solid #E7E3DD', background: 'white', fontSize: 13, fontWeight: 800, cursor: 'pointer' }}>
-              <ShieldAlert size={14} /> Report rule issue
+              <ShieldAlert size={14} /> Report focus issue
             </button>
             <button onClick={() => handleSubmit(false)} disabled={submitting} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '10px 14px', borderRadius: 16, border: 'none', background: submitting ? '#D6D3D1' : '#111111', color: 'white', fontSize: 13, fontWeight: 900, cursor: submitting ? 'not-allowed' : 'pointer' }}>
               {submitting ? <Loader2 size={14} /> : <CheckCircle2 size={14} />} Submit
@@ -242,9 +261,15 @@ export default function QuizAttemptPage() {
         <div style={{ marginTop: 14, display: 'flex', gap: 10, flexWrap: 'wrap', color: '#6F655C', fontSize: 13 }}>
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><ShieldCheck size={14} /> Violations: {violations}</div>
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><SquarePen size={14} /> Autosave: {saving ? 'Saving...' : 'On'}</div>
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><PauseCircle size={14} /> Stay in fullscreen for secure submission</div>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><PauseCircle size={14} /> {focusState === 'secure' ? 'Focus monitoring active' : 'Focus issue detected'}</div>
         </div>
       </div>
+
+      {isTimeWarning && (
+        <div style={{ marginBottom: 16, padding: '12px 14px', borderRadius: 16, background: '#FEF3C7', border: '1px solid #FCD34D', color: '#92400E', fontSize: 13, fontWeight: 800 }}>
+          Time warning: less than 5 minutes remaining. Please review your answers and submit soon.
+        </div>
+      )}
 
       {warning && (
         <div style={{ marginBottom: 16, padding: '12px 14px', borderRadius: 16, background: '#FFF7ED', border: '1px solid #FED7AA', color: '#9A3412', fontSize: 13, fontWeight: 700 }}>
@@ -252,8 +277,20 @@ export default function QuizAttemptPage() {
         </div>
       )}
 
+      {violations > 0 && violations < 5 && (
+        <div style={{ marginBottom: 16, padding: '12px 14px', borderRadius: 16, background: '#FEF2F2', border: '1px solid #FECACA', color: '#B91C1C', fontSize: 13, fontWeight: 700 }}>
+          Violation count: {violations} / 5. Stay on this screen and avoid any tab switch, blur, or resize events.
+        </div>
+      )}
+
+      {violations >= 5 && (
+        <div style={{ marginBottom: 16, padding: '12px 14px', borderRadius: 16, background: '#111111', color: 'white', fontSize: 13, fontWeight: 800 }}>
+          Five violations reached. Auto-submitting your quiz.
+        </div>
+      )}
+
       <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 0.75fr', gap: 16, alignItems: 'start' }}>
-        <div style={{ background: 'white', border: '1px solid #E7E3DD', borderRadius: 24, padding: 22, minHeight: 420 }}>
+        <div style={{ background: 'white', border: '1px solid #E7E3DD', borderRadius: 24, padding: 22, minHeight: 420, boxShadow: '0 8px 28px rgba(17,17,17,0.04)' }}>
           <div style={{ fontSize: 12, color: '#7A7167', fontWeight: 800, textTransform: 'uppercase', marginBottom: 10 }}>Question</div>
           <div style={{ fontSize: 20, lineHeight: 1.7, fontWeight: 700, color: '#111111' }}>
             {text}
@@ -263,11 +300,11 @@ export default function QuizAttemptPage() {
             {currentQuestion.type === 'mcq_single' && options.length > 0 && (
               <div style={{ display: 'grid', gap: 10 }}>
                 {options.map((option, index) => (
-                  <label key={index} style={{ display: 'flex', alignItems: 'center', gap: 12, border: '1px solid #E7E3DD', borderRadius: 16, padding: '12px 14px', cursor: 'pointer', background: selectedAnswers[currentQuestion.id] === index + 1 ? '#F8FAFC' : 'white' }}>
+                  <label key={index} style={{ display: 'flex', alignItems: 'center', gap: 12, border: selectedAnswers[currentQuestion.id] === index ? '1px solid #111111' : '1px solid #E7E3DD', borderRadius: 16, padding: '12px 14px', cursor: 'pointer', background: selectedAnswers[currentQuestion.id] === index ? '#FFF7ED' : 'white', boxShadow: selectedAnswers[currentQuestion.id] === index ? '0 8px 20px rgba(17,17,17,0.06)' : 'none', transition: 'all 0.2s ease' }}>
                     <input
                       type="radio"
-                      checked={Number(selectedAnswers[currentQuestion.id]) === index + 1}
-                      onChange={() => handleAnswerChange(currentQuestion, index + 1)}
+                      checked={Number(selectedAnswers[currentQuestion.id]) === index}
+                      onChange={() => handleAnswerChange(currentQuestion, index)}
                     />
                     <span style={{ fontSize: 15, fontWeight: 600 }}>{option}</span>
                   </label>
@@ -279,14 +316,14 @@ export default function QuizAttemptPage() {
               <div style={{ display: 'grid', gap: 10 }}>
                 {options.map((option, index) => {
                   const current = Array.isArray(selectedAnswers[currentQuestion.id]) ? selectedAnswers[currentQuestion.id] : [];
-                  const checked = current.includes(index + 1);
+                  const checked = current.includes(index);
                   return (
-                    <label key={index} style={{ display: 'flex', alignItems: 'center', gap: 12, border: '1px solid #E7E3DD', borderRadius: 16, padding: '12px 14px', cursor: 'pointer', background: checked ? '#F8FAFC' : 'white' }}>
+                    <label key={index} style={{ display: 'flex', alignItems: 'center', gap: 12, border: checked ? '1px solid #111111' : '1px solid #E7E3DD', borderRadius: 16, padding: '12px 14px', cursor: 'pointer', background: checked ? '#FFF7ED' : 'white', boxShadow: checked ? '0 8px 20px rgba(17,17,17,0.06)' : 'none', transition: 'all 0.2s ease' }}>
                       <input
                         type="checkbox"
                         checked={checked}
                         onChange={() => {
-                          const next = checked ? current.filter((value) => value !== index + 1) : [...current, index + 1];
+                          const next = checked ? current.filter((value) => value !== index) : [...current, index];
                           handleAnswerChange(currentQuestion, next);
                         }}
                       />
@@ -303,7 +340,7 @@ export default function QuizAttemptPage() {
                   <button
                     key={value}
                     onClick={() => handleAnswerChange(currentQuestion, value)}
-                    style={{ padding: '12px 16px', borderRadius: 16, border: '1px solid #E7E3DD', background: String(selectedAnswers[currentQuestion.id]) === value ? '#111111' : 'white', color: String(selectedAnswers[currentQuestion.id]) === value ? 'white' : '#111111', fontSize: 14, fontWeight: 800, cursor: 'pointer' }}
+                    style={{ padding: '12px 16px', borderRadius: 16, border: String(selectedAnswers[currentQuestion.id]) === value ? '1px solid #111111' : '1px solid #E7E3DD', background: String(selectedAnswers[currentQuestion.id]) === value ? '#111111' : 'white', color: String(selectedAnswers[currentQuestion.id]) === value ? 'white' : '#111111', fontSize: 14, fontWeight: 800, cursor: 'pointer', boxShadow: String(selectedAnswers[currentQuestion.id]) === value ? '0 8px 20px rgba(17,17,17,0.12)' : 'none', transition: 'all 0.2s ease' }}
                   >
                     {value === 'true' ? 'True' : 'False'}
                   </button>
@@ -317,7 +354,7 @@ export default function QuizAttemptPage() {
                 value={selectedAnswers[currentQuestion.id] ?? ''}
                 onChange={(e) => handleAnswerChange(currentQuestion, e.target.value)}
                 placeholder="Type your answer"
-                style={{ width: '100%', boxSizing: 'border-box', marginTop: 8, padding: '14px 16px', borderRadius: 16, border: '1px solid #E7E3DD', fontSize: 15, outline: 'none' }}
+                style={{ width: '100%', boxSizing: 'border-box', marginTop: 8, padding: '14px 16px', borderRadius: 16, border: '1px solid #E7E3DD', fontSize: 15, outline: 'none', transition: 'border-color 0.2s ease, box-shadow 0.2s ease' }}
               />
             )}
           </div>
@@ -340,7 +377,7 @@ export default function QuizAttemptPage() {
           </div>
         </div>
 
-        <div style={{ background: 'white', border: '1px solid #E7E3DD', borderRadius: 24, padding: 18, position: 'sticky', top: 16 }}>
+        <div style={{ background: 'white', border: '1px solid #E7E3DD', borderRadius: 24, padding: 18, position: 'sticky', top: 16, boxShadow: '0 8px 28px rgba(17,17,17,0.04)' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
             <div style={{ fontSize: 13, color: '#7A7167', fontWeight: 800, textTransform: 'uppercase' }}>Navigator</div>
             <div style={{ fontSize: 12, color: '#8A8177', fontWeight: 700 }}>{questions.length} questions</div>

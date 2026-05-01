@@ -17,9 +17,11 @@ const listTenants = async ({ page = 1, limit = 20, status }) => {
     pool.query(
       `SELECT t.id, t.name, t.is_active, t.created_at,
               COUNT(DISTINCT u.id)::int AS user_count,
+              COUNT(DISTINCT b.id)::int AS batch_count,
               COUNT(DISTINCT q.id)::int AS quiz_count
        FROM tenants t
        LEFT JOIN users u ON u.tenant_id = t.id
+       LEFT JOIN batches b ON b.tenant_id = t.id
        LEFT JOIN quizzes q ON q.tenant_id = t.id
        ${where}
        GROUP BY t.id
@@ -81,6 +83,7 @@ const activateTenant = async (tenantId) => {
 const getTenantStats = async (tenantId) => {
   const r = await pool.query(
     `SELECT
+       (SELECT COUNT(*) FROM users WHERE tenant_id = $1 AND role = 'admin')::int AS admins,
        (SELECT COUNT(*) FROM users WHERE tenant_id = $1 AND role = 'teacher')::int AS teachers,
        (SELECT COUNT(*) FROM users WHERE tenant_id = $1 AND role = 'student')::int AS students,
        (SELECT COUNT(*) FROM batches WHERE tenant_id = $1)::int AS batches,

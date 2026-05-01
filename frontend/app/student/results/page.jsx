@@ -1,10 +1,10 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import api from '@/lib/api';
-import { ArrowLeft, BarChart3, CalendarClock, CheckCircle2, Search, ShieldAlert, Trophy } from 'lucide-react';
+import { ArrowLeft, ArrowRight, BarChart3, CalendarClock, CheckCircle2, Search, ShieldAlert, Trophy } from 'lucide-react';
 
 function formatDate(value) {
   if (!value) return 'N/A';
@@ -75,11 +75,20 @@ function ResultCard({ item }) {
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><BarChart3 size={14} />Violations: {item.violation_count || 0}</span>
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Trophy size={14} />Quiz ID {item.quiz_id}</span>
       </div>
+
+      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+        <Link href={`/student/results/${item.session_id}/review`} style={{ textDecoration: 'none' }}>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '10px 14px', borderRadius: 14, background: '#111111', color: 'white', fontSize: 13, fontWeight: 800 }}>
+            Review answers
+            <ArrowRight size={14} />
+          </div>
+        </Link>
+      </div>
     </div>
   );
 }
 
-export default function StudentResultsPage() {
+function StudentResultsContent() {
   const searchParams = useSearchParams();
   const quizIdFilter = searchParams.get('quizId');
   const [history, setHistory] = useState([]);
@@ -200,5 +209,21 @@ export default function StudentResultsPage() {
         )}
       </div>
     </div>
+  );
+}
+
+function ResultsFallback() {
+  return (
+    <div style={{ padding: '24px 0', color: '#6B6B6B', fontFamily: 'Segoe UI, sans-serif' }}>
+      Loading results...
+    </div>
+  );
+}
+
+export default function StudentResultsPage() {
+  return (
+    <Suspense fallback={<ResultsFallback />}>
+      <StudentResultsContent />
+    </Suspense>
   );
 }

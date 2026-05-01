@@ -14,11 +14,11 @@ export default function Modal({ open, onClose, title, children, size = 'md' }) {
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4 sm:items-center">
       <div className="absolute inset-0 bg-black/25 backdrop-blur-sm" onClick={onClose}/>
       <div className={clsx(
         'relative w-full bg-[#FAFAF8] rounded-3xl shadow-[0_8px_40px_rgba(0,0,0,0.12)]',
-        'border border-[#E5E5E3]', sizes[size]
+        'border border-[#E5E5E3] overflow-hidden max-h-[calc(100dvh-2rem)]', sizes[size]
       )}>
         <div className="flex items-center justify-between px-6 py-5 border-b border-[#E5E5E3]">
           <h2 className="text-base font-bold text-[#0A0A0A]">{title}</h2>
@@ -28,7 +28,7 @@ export default function Modal({ open, onClose, title, children, size = 'md' }) {
             <X size={15}/>
           </button>
         </div>
-        <div className="px-6 py-5">{children}</div>
+        <div className="px-6 py-5 overflow-y-auto overscroll-contain">{children}</div>
       </div>
     </div>
   );

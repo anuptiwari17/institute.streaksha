@@ -44,7 +44,6 @@ export default function NewQuiz() {
     questionMarks: {},
     duration: 60,
     shuffleQuestions: false,
-    shuffleOptions: false,
     startsAt: '',
     endsAt: '',
   });
@@ -152,7 +151,6 @@ export default function NewQuiz() {
         config: {
           duration_mins: formData.duration,
           shuffle_questions: formData.shuffleQuestions,
-          shuffle_options: formData.shuffleOptions,
         },
         starts_at: formData.startsAt || undefined,
         ends_at: formData.endsAt || undefined,
@@ -264,10 +262,6 @@ export default function NewQuiz() {
             <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', marginBottom: 16 }}>
               <input type="checkbox" checked={formData.shuffleQuestions} onChange={e => setFormData({ ...formData, shuffleQuestions: e.target.checked })} style={{ width: 18, height: 18, cursor: 'pointer' }} />
               <span style={{ fontSize: 13, color: '#0A0A0A' }}>Shuffle questions for each student</span>
-            </label>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
-              <input type="checkbox" checked={formData.shuffleOptions} onChange={e => setFormData({ ...formData, shuffleOptions: e.target.checked })} style={{ width: 18, height: 18, cursor: 'pointer' }} />
-              <span style={{ fontSize: 13, color: '#0A0A0A' }}>Shuffle options in multiple choice</span>
             </label>
           </div>
 

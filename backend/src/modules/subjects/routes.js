@@ -8,10 +8,10 @@ const roleGuard = require('../../middlewares/roleGuard');
 router.use(auth, tenantScope);
 
 router.post('/', roleGuard('admin'), controller.createSubject);
-router.get('/', roleGuard('admin', 'teacher'), controller.listSubjects);
+router.get('/', roleGuard('admin', 'teacher', 'super_admin'), controller.listSubjects);
 router.delete('/:id', roleGuard('admin'), controller.deleteSubject);
 router.post('/:id/assign', roleGuard('admin'), controller.assignTeacher);
-router.get('/:id/assignments', roleGuard('admin'), controller.listAssignments);
+router.get('/:id/assignments', roleGuard('admin', 'super_admin'), controller.listAssignments);
 router.patch('/:id/assignments/:assignmentId', roleGuard('admin'), controller.updateAssignment);
 router.delete('/:id/assignments/:assignmentId', roleGuard('admin'), controller.deleteAssignment);
 

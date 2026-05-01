@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import api from '@/lib/api';
+import Modal from '@/components/ui/Modal';
 import {
   Plus, Search, Edit2, Trash2, Download, Upload,
   X, AlertCircle, CheckCircle
@@ -40,38 +41,6 @@ function Toast({ message, type, onClose }) {
       <span style={{ fontSize: 13, fontWeight: 500, color: '#0A0A0A' }}>
         {message}
       </span>
-    </div>
-  );
-}
-
-function Modal({ open, onClose, title, children }) {
-  if (!open) return null;
-  return (
-    <div style={{
-      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      zIndex: 1000
-    }} onClick={onClose}>
-      <div style={{
-        background: 'white', borderRadius: 20, padding: 32,
-        maxWidth: 600, width: '90%', maxHeight: '90vh', overflow: 'auto',
-        boxShadow: '0 20px 64px rgba(0,0,0,0.15)'
-      }} onClick={e => e.stopPropagation()}>
-        <div style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          marginBottom: 24
-        }}>
-          <h2 style={{ fontSize: 18, fontWeight: 700, color: '#0A0A0A' }}>
-            {title}
-          </h2>
-          <button onClick={onClose} style={{
-            background: 'none', border: 'none', cursor: 'pointer', padding: 0
-          }}>
-            <X size={20} color="#6B6B6B"/>
-          </button>
-        </div>
-        {children}
-      </div>
     </div>
   );
 }
@@ -647,7 +616,7 @@ export default function QuestionBank() {
       </div>
 
       {/* Create modal */}
-      <Modal open={createModalOpen} onClose={() => setCreateModalOpen(false)} title="Create Question">
+      <Modal open={createModalOpen} onClose={() => setCreateModalOpen(false)} title="Create Question" size="xl">
         <QuestionForm
           onSave={handleCreateQuestion}
           onCancel={() => setCreateModalOpen(false)}
@@ -656,7 +625,7 @@ export default function QuestionBank() {
       </Modal>
 
       {/* Edit modal */}
-      <Modal open={editModalOpen} onClose={() => setEditModalOpen(false)} title="Edit Question">
+      <Modal open={editModalOpen} onClose={() => setEditModalOpen(false)} title="Edit Question" size="xl">
         {editQuestion && (
           <QuestionForm
             question={editQuestion}

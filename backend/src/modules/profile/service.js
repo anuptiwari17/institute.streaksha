@@ -83,6 +83,23 @@ const getProfile = async (userId, tenantId, role) => {
     return { ...user, batches: batches.rows, completedQuizzes: attemptCount.rows[0].total };
   }
 
+  if (role === 'super_admin') {
+    const stats = await pool.query(
+      `SELECT
+         (SELECT COUNT(*) FROM tenants WHERE is_active = TRUE)::int AS institutions,
+         (SELECT COUNT(*) FROM users WHERE role = 'admin' AND is_active = TRUE)::int AS admins,
+         (SELECT COUNT(*) FROM users WHERE role = 'teacher' AND is_active = TRUE)::int AS teachers,
+         (SELECT COUNT(*) FROM users WHERE role = 'student' AND is_active = TRUE)::int AS students,
+         (SELECT COUNT(*) FROM batches)::int AS batches,
+         (SELECT COUNT(*) FROM subjects)::int AS subjects,
+         (SELECT COUNT(*) FROM questions)::int AS questions,
+         (SELECT COUNT(*) FROM quizzes)::int AS quizzes,
+         (SELECT COUNT(*) FROM quizzes WHERE status = 'published')::int AS published_quizzes,
+         (SELECT COUNT(*) FROM quiz_sessions)::int AS total_attempts`
+    );
+    return { ...user, stats: stats.rows[0], role_type: 'Super Admin' };
+  }
+
   return user;
 };
 

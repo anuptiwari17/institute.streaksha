@@ -25,6 +25,7 @@ export default function QuizLobbyPage() {
   const [quiz, setQuiz] = useState(null);
   const [loading, setLoading] = useState(true);
   const [starting, setStarting] = useState(false);
+  const [showInstructions, setShowInstructions] = useState(false);
   const [error, setError] = useState('');
   const [startHint, setStartHint] = useState('');
 
@@ -63,6 +64,13 @@ export default function QuizLobbyPage() {
       setStarting(false);
     }
   };
+
+  const violationRules = [
+    'Keep the quiz tab active throughout the attempt.',
+    'Avoid leaving the quiz window, minimizing, or resizing the exam window.',
+    'Violation events are logged automatically by the system.',
+    'After 5 violations, the quiz will auto-submit for integrity reasons.',
+  ];
 
   return (
     <div style={{ fontFamily: 'Segoe UI, sans-serif', color: '#111111', padding: '8px 0 24px' }}>
@@ -146,7 +154,7 @@ export default function QuizLobbyPage() {
                   </div>
                 )}
                 <button
-                  onClick={handleStart}
+                  onClick={() => setShowInstructions(true)}
                   disabled={!canStart || starting}
                   style={{
                     width: '100%',
@@ -170,6 +178,115 @@ export default function QuizLobbyPage() {
           </div>
         )}
       </div>
+
+      {showInstructions && quiz && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          onClick={() => !starting && setShowInstructions(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(17,17,17,0.55)',
+            display: 'flex',
+            alignItems: 'flex-start',
+            justifyContent: 'center',
+            overflowY: 'auto',
+            padding: 16,
+            zIndex: 50,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: 'min(720px, 100%)',
+              background: 'white',
+              borderRadius: 28,
+              border: '1px solid #E7E3DD',
+              padding: 24,
+              boxShadow: '0 20px 60px rgba(0,0,0,0.2)',
+              display: 'grid',
+              gap: 18,
+              margin: 'auto 0',
+              maxHeight: 'calc(100dvh - 32px)',
+              overflowY: 'auto',
+            }}
+          >
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 800, color: '#7A7167', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                Quiz instructions
+              </div>
+              <h2 style={{ margin: '8px 0 0', fontSize: 26, fontWeight: 900, letterSpacing: '-0.05em', lineHeight: 1.1 }}>
+                {quiz.title}
+              </h2>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
+              <div style={{ padding: 14, borderRadius: 18, background: '#FAFAF8', border: '1px solid #E7E3DD' }}>
+                <div style={{ fontSize: 12, fontWeight: 800, color: '#7A7167', textTransform: 'uppercase' }}>Duration</div>
+                <div style={{ marginTop: 6, fontSize: 18, fontWeight: 900 }}>{quiz.config?.duration_mins || 0} minutes</div>
+              </div>
+              <div style={{ padding: 14, borderRadius: 18, background: '#FAFAF8', border: '1px solid #E7E3DD' }}>
+                <div style={{ fontSize: 12, fontWeight: 800, color: '#7A7167', textTransform: 'uppercase' }}>Questions</div>
+                <div style={{ marginTop: 6, fontSize: 18, fontWeight: 900 }}>{quiz.questions?.length || 0}</div>
+              </div>
+              <div style={{ padding: 14, borderRadius: 18, background: '#FAFAF8', border: '1px solid #E7E3DD' }}>
+                <div style={{ fontSize: 12, fontWeight: 800, color: '#7A7167', textTransform: 'uppercase' }}>Violation limit</div>
+                <div style={{ marginTop: 6, fontSize: 18, fontWeight: 900 }}>5 violations</div>
+              </div>
+            </div>
+
+            <div style={{ padding: 18, borderRadius: 20, background: '#FFF7ED', border: '1px solid #FED7AA' }}>
+              <div style={{ fontSize: 13, fontWeight: 900, color: '#9A3412', marginBottom: 10 }}>Please read carefully</div>
+              <div style={{ display: 'grid', gap: 8, color: '#7C2D12', fontSize: 14, lineHeight: 1.6 }}>
+                {violationRules.map((rule) => (
+                  <div key={rule} style={{ display: 'flex', gap: 10 }}>
+                    <ShieldAlert size={16} style={{ flexShrink: 0, marginTop: 3 }} />
+                    <span>{rule}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                onClick={() => setShowInstructions(false)}
+                disabled={starting}
+                style={{
+                  padding: '12px 16px',
+                  borderRadius: 14,
+                  border: '1px solid #E7E3DD',
+                  background: 'white',
+                  color: '#111111',
+                  fontSize: 14,
+                  fontWeight: 800,
+                  cursor: starting ? 'not-allowed' : 'pointer',
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleStart}
+                disabled={starting || !canStart}
+                style={{
+                  padding: '12px 18px',
+                  borderRadius: 14,
+                  border: 'none',
+                  background: starting || !canStart ? '#D6D3D1' : '#111111',
+                  color: 'white',
+                  fontSize: 14,
+                  fontWeight: 900,
+                  cursor: starting || !canStart ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {starting ? 'Starting...' : 'Proceed to quiz'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
